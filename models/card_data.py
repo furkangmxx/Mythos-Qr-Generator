@@ -71,15 +71,12 @@ class CardData:
         return self.description
     
     def generate_link_url(self) -> str:
-        """
-        LinkUrlTR alanını oluşturur.
-        Format: <YYYY-YY-player-series-(-group)-det>
-        """
+        """LinkUrlTR alanını oluşturur."""
         year_short = f"{self.card_printing_year}-{str(self.card_printing_year + 1)[-2:]}"
         
-        # Her parçayı normalize et
+        # Her parçayı normalize et (YEAR HARİÇ!)
         parts = [
-            self.normalizer.normalize(year_short),
+            year_short,  # ← Normalize YAPMA!
             self.normalizer.normalize(self.player_name),
             self.normalizer.normalize(self.series_name)
         ]
@@ -87,10 +84,8 @@ class CardData:
         if self.group:
             parts.append(self.normalizer.normalize(self.group))
         
-        # Determinant'ı normalize et ve ekle
         parts.append(self.normalizer.normalize(self.determinant))
         
-        # Birleştir
         self.link_url_tr = "-".join(parts)
         return self.link_url_tr
     
