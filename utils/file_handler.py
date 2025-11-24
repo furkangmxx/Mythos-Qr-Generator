@@ -4,7 +4,7 @@ Dosya işlemleri yardımcı modülü.
 
 import pandas as pd
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 import logging
 
 
@@ -44,6 +44,35 @@ class FileHandler:
                 df.to_excel(writer, sheet_name=sheet_name, index=index)
             
             self.logger.info(f"Excel oluşturuldu: {path.name}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Excel yazma hatası: {e}")
+            return False
+    
+    def write_excel_multiple_sheets(self, file_path: str, 
+                                     sheets_data: Dict[str, pd.DataFrame], 
+                                     index: bool = False) -> bool:
+        """
+        Birden fazla sheet içeren Excel dosyası oluşturur.
+        
+        Args:
+            file_path: Kaydedilecek dosya yolu
+            sheets_data: {'SheetAdı': DataFrame, ...} formatında dict
+            index: Index sütunu yazılsın mı
+            
+        Returns:
+            Başarılı ise True
+        """
+        path = Path(file_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
+                for sheet_name, df in sheets_data.items():
+                    if df is not None and not df.empty:
+                        df.to_excel(writer, sheet_name=sheet_name, index=index)
+            
+            self.logger.info(f"Excel oluşturuldu: {path.name} ({len(sheets_data)} sheet)")
             return True
         except Exception as e:
             self.logger.error(f"Excel yazma hatası: {e}")

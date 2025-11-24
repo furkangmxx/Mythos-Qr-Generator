@@ -159,9 +159,10 @@ class MatchingWorker(BaseWorker):
                 'Log': log_df
             }
             
+            # DÜZELTME: Argüman sırası (önce path, sonra dict)
             success = self.file_handler.write_excel_multiple_sheets(
-                sheets,
-                self.excel_path
+                self.excel_path,
+                sheets
             )
             
             if not success:

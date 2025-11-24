@@ -18,7 +18,8 @@ class CardData:
                  card_printing_year: int,
                  product_information: str,
                  price: float,
-                 group: Optional[str] = None):
+                 group: Optional[str] = None,
+                 is_signed: bool = False):
         """CardData başlatıcı."""
         # Ana alanlar
         self.no = 0
@@ -39,6 +40,7 @@ class CardData:
         self.player_name = player_name
         self.determinant = determinant
         self.determinant_column = determinant_column
+        self.is_signed = is_signed
         
         # Normalizer
         self.normalizer = Normalizer()
@@ -55,10 +57,15 @@ class CardData:
         
         # Name oluştur
         if self.group:
-            self.name = f"{year_str} {self.player_name} {self.series_name} {self.group} {det_display}"
+            base = f"{year_str} {self.player_name} {self.series_name} {self.group} {det_display}"
         else:
-            self.name = f"{year_str} {self.player_name} {self.series_name} {det_display}"
+            base = f"{year_str} {self.player_name} {self.series_name} {det_display}"
         
+        # İmzalı ise suffix ekle
+        if self.is_signed:
+            base += " İmzalı"
+        
+        self.name = base
         return self.name
     
     def generate_description(self) -> str:
@@ -76,7 +83,7 @@ class CardData:
         
         # Her parçayı normalize et (YEAR HARİÇ!)
         parts = [
-            year_short,  # ← Normalize YAPMA!
+            year_short,
             self.normalizer.normalize(self.player_name),
             self.normalizer.normalize(self.series_name)
         ]
@@ -84,7 +91,14 @@ class CardData:
         if self.group:
             parts.append(self.normalizer.normalize(self.group))
         
-        parts.append(self.normalizer.normalize(self.determinant))
+        # Determinant normalize et
+        det = self.normalizer.normalize(self.determinant)
+        
+        # İmzalı ise suffix ekle
+        if self.is_signed:
+            parts.append("imzali")
+        
+        parts.append(det)
         
         self.link_url_tr = "-".join(parts)
         return self.link_url_tr

@@ -121,7 +121,7 @@ class DataValidator:
         # Sabit kolonlar (bunlar determinant DEĞİL)
         fixed_columns = [
             INPUT_COLUMNS['SERIES_NAME'],   # Seri Adı
-            INPUT_COLUMNS['GROUP'],          # Grup ← ÖNEMLİ!
+            INPUT_COLUMNS['GROUP'],          # Grup
             INPUT_COLUMNS['PLAYER_NAME']     # Oyuncu Adı
         ]
         

@@ -137,6 +137,14 @@ class DataConverter:
             else:
                 det_display = det_column
             
+            # İmzalı kontrolü - Türkçe İ harfi özel durumu için önce İ → i değiştir
+            det_column_normalized = det_column.replace("İ", "i").replace("I", "i")
+            det_column_lower = det_column_normalized.lower()
+            is_signed = "imzalı" in det_column_lower
+
+            # DEBUG - Terminal/Console'a yazdır
+            print(f"🔍 DEBUG Kolon: '{det_column}' | Normalized: '{det_column_normalized}' | Lower: '{det_column_lower}' | is_signed: {is_signed}")
+
             # Zorunlu alan kontrolü
             if not series_name or not player_name:
                 self.logger.warning(
@@ -153,7 +161,8 @@ class DataConverter:
                 determinant_column=det_column,
                 card_printing_year=self.year,
                 product_information=PRODUCT_INFORMATION_TEXT,
-                price=DEFAULT_PRICE
+                price=DEFAULT_PRICE,
+                is_signed=is_signed
             )
             
             card.generate_name()
@@ -209,4 +218,4 @@ class DataConverter:
         else:
             group = str(group).strip()
         
-        return (series_name, group)        
+        return (series_name, group)
