@@ -3,6 +3,9 @@ Veri dönüştürme modülü.
 
 Input Excel'i output formatına dönüştürür.
 Her satır için gerekli hesaplamaları yapar ve yeni DataFrame oluşturur.
+
+v1.1 - Güncelleme:
+- Text determinant'tan "İmzalı" kelimesi çıkarıldı (çift imzalı sorunu çözüldü)
 """
 
 import pandas as pd
@@ -113,6 +116,35 @@ class DataConverter:
         except (ValueError, AttributeError):
             return str(value).strip()
 
+    def _clean_signed_from_text(self, text: str) -> str:
+        """
+        Text determinant'tan "İmzalı" kelimesini çıkarır.
+        
+        Örnekler:
+            "Short Print İmzalı" → "Short Print"
+            "X İmzalı" → "X"
+            "Base" → "Base" (değişmez)
+        """
+        if not text:
+            return text
+        
+        # Farklı "İmzalı" yazım varyasyonlarını temizle
+        cleaned = text
+        cleaned = cleaned.replace(" İmzalı", "")
+        cleaned = cleaned.replace(" imzalı", "")
+        cleaned = cleaned.replace(" IMZALI", "")
+        cleaned = cleaned.replace(" Imzalı", "")
+        # Başta olma ihtimali için de kontrol
+        cleaned = cleaned.replace("İmzalı ", "")
+        cleaned = cleaned.replace("imzalı ", "")
+        cleaned = cleaned.replace("IMZALI ", "")
+        cleaned = cleaned.replace("Imzalı ", "")
+        # Tek başına olma ihtimali
+        if cleaned.strip().lower() in ["imzalı", "i̇mzalı"]:
+            cleaned = ""
+        
+        return cleaned.strip()
+
     def _create_card_data(self, row: pd.Series, det_column: str,
                         det_value: str, row_number: int) -> Optional[CardData]:
         """
@@ -133,9 +165,11 @@ class DataConverter:
             
             # Determinant tipini belirle
             if '/' in det_column:
+                # Sayısal determinant: hücredeki değeri al (25, 50, vb.)
                 det_display = det_value_clean
             else:
-                det_display = det_column
+                # Text determinant: kolon adını al AMA "İmzalı" kelimesini çıkar
+                det_display = self._clean_signed_from_text(det_column)
             
             # İmzalı kontrolü - Türkçe İ harfi özel durumu için önce İ → i değiştir
             det_column_normalized = det_column.replace("İ", "i").replace("I", "i")
@@ -143,7 +177,7 @@ class DataConverter:
             is_signed = "imzalı" in det_column_lower
 
             # DEBUG - Terminal/Console'a yazdır
-            print(f"🔍 DEBUG Kolon: '{det_column}' | Normalized: '{det_column_normalized}' | Lower: '{det_column_lower}' | is_signed: {is_signed}")
+            print(f"🔍 DEBUG Kolon: '{det_column}' | det_display: '{det_display}' | is_signed: {is_signed}")
 
             # Zorunlu alan kontrolü
             if not series_name or not player_name:
@@ -195,14 +229,18 @@ class DataConverter:
                 'FrontSideImage': card.front_side_image,
                 'BackSideImage': card.back_side_image,
                 'Price': card.price,
-                'Stock': card.stock
+                'Stock': card.stock,
+                'player_name': card.player_name,                    # YENİ
+                'series_name': card.series_name,                    # YENİ
+                'group': card.group if card.group else "",          # YENİ
+                'determinant': card.determinant                     # YENİ
             }
             
             data.append(row_data)
         
         df = pd.DataFrame(data, columns=OUTPUT_COLUMNS)
         return df
-    
+        
     def get_series_and_group(self, df: pd.DataFrame) -> tuple:
         """DataFrame'den Series ve Group değerlerini çıkarır."""
         if df.empty:

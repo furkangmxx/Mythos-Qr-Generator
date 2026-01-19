@@ -1,5 +1,9 @@
 """
 Kart veri modeli.
+
+v1.1 - Güncelleme:
+- Sayısal determinant: ...-imzali-25
+- Text determinant: ...-short-print-imzali
 """
 from typing import Optional
 from core.normalizer import Normalizer
@@ -78,7 +82,13 @@ class CardData:
         return self.description
     
     def generate_link_url(self) -> str:
-        """LinkUrlTR alanını oluşturur."""
+        """
+        LinkUrlTR alanını oluşturur.
+        
+        Kurallar:
+        - Sayısal determinant (/25 İmzalı): ...-imzali-25
+        - Text determinant (Short Print İmzalı): ...-short-print-imzali
+        """
         year_short = f"{self.card_printing_year}-{str(self.card_printing_year + 1)[-2:]}"
         
         # Her parçayı normalize et (YEAR HARİÇ!)
@@ -94,11 +104,17 @@ class CardData:
         # Determinant normalize et
         det = self.normalizer.normalize(self.determinant)
         
-        # İmzalı ise suffix ekle
-        if self.is_signed:
-            parts.append("imzali")
-        
-        parts.append(det)
+        # Determinant tipine göre sıralama
+        if '/' in self.determinant_column:
+            # Sayısal: imzali → sayı (örnek: ...-imzali-25)
+            if self.is_signed:
+                parts.append("imzali")
+            parts.append(det)
+        else:
+            # Text: text → imzali (örnek: ...-short-print-imzali)
+            parts.append(det)
+            if self.is_signed:
+                parts.append("imzali")
         
         self.link_url_tr = "-".join(parts)
         return self.link_url_tr

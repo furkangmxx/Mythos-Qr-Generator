@@ -58,7 +58,11 @@ OUTPUT_COLUMNS = [
     'FrontSideImage',
     'BackSideImage',
     'Price',
-    'Stock'
+    'Stock',
+    'player_name',      # BackSide eşleştirme için (Part 2)
+    'series_name',      # BackSide eşleştirme için (Part 2)
+    'group',            # BackSide eşleştirme için (Part 2)
+    'determinant'       # BackSide eşleştirme için (Part 2)
 ]
 
 # Sabit değerler

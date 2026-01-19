@@ -4,11 +4,20 @@ Görsel eşleştirme modülü.
 LinkUrlTR sütunundaki verilerle görselleri eşleştirir.
 "arka" kelimesi içeren görseller BackSideImage, diğerleri FrontSideImage için kullanılır.
 
-PRD v3.0 - BackSide Özel Kuralları:
-- BackSide için determinant varsa TAM eşleştirme
-- BackSide için determinant yoksa determinant atılarak eşleştirme
-- İmzalı kontrolü MUTLAK (expected_is_signed == back_has_s)
+PRD v4.2 - BackSide 6 Seviyeli Eşleştirme:
+- Seviye 1: Oyuncu + Seri + Grup + Determinant (en spesifik)
+- Seviye 2: Oyuncu + Seri + Grup (determinant yok) ← YENİ!
+- Seviye 3: Seri + Grup + Determinant
+- Seviye 4: Seri + Grup (determinant yok)
+- Seviye 5: Seri + Determinant (grup yok)
+- Seviye 6: Seri (en genel)
+- Her seviyede İmzalı/İmzalısız MUTLAK ayrımı
 - Aynı back görsel birden fazla satır için kullanılabilir
+
+v1.1 - Güncelleme:
+- Text determinant için görselin sonundaki sayı yoksayılıyor
+- Sayısal: ..._s_25 (sayı önemli, eşleşmeli)
+- Text: ..._short_print_s (görseldeki _2 yoksay)
 """
 
 import pandas as pd
@@ -16,6 +25,9 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import logging
 import re
+from datetime import datetime
+import os
+
 
 # Proje içinden import dene, yoksa standalone çalış
 try:
@@ -72,6 +84,7 @@ TR_CHAR_MAP = {
 DATE_PATTERN = re.compile(r'^\d{8}_')  # 20250911_ gibi
 YEAR_PATTERN = re.compile(r'^\d{4}-\d{2}-')  # 2025-26- gibi
 BACK_PREFIX = 'arka_'
+TRAILING_NUMBER_PATTERN = re.compile(r'_\d+$')  # Sondaki _sayı pattern'i
 
 
 # ============================================================================
@@ -127,6 +140,34 @@ def extract_variant(core_name: str) -> Tuple[str, str]:
     return (core_name, "")
 
 
+def remove_trailing_number(core_name: str) -> str:
+    """
+    Core name'den sondaki sayıyı kaldır.
+    
+    Örnekler:
+        "xxx_short_print_s_2" → "xxx_short_print_s"
+        "xxx_base_3" → "xxx_base"
+        "xxx_s_25" → "xxx_s_25" (değişmez - bu sayısal determinant)
+    """
+    if not core_name:
+        return ""
+    return TRAILING_NUMBER_PATTERN.sub('', core_name)
+
+
+def is_numeric_determinant(expected_core: str) -> bool:
+    """
+    Expected core name'in sayısal determinant olup olmadığını kontrol et.
+    
+    Sayısal: ..._s_25 veya ..._25 (sayı ile bitiyor)
+    Text: ..._short_print_s veya ..._base (text ile bitiyor)
+    """
+    if not expected_core:
+        return False
+    
+    _, variant = extract_variant(expected_core)
+    return variant.isdigit()
+
+
 # ============================================================================
 # LINK URL TR PROCESSING
 # ============================================================================
@@ -167,6 +208,77 @@ def generate_expected_from_link_url_tr(link_url_tr: str) -> str:
     text = text.strip('_')
     
     return text
+
+
+def generate_back_expected_levels(player_name: str, series_name: str, group: str, 
+                                   determinant: str, is_signed: bool) -> List[str]:
+    """
+    BackSide için 6 seviye expected core name üret.
+    
+    Args:
+        player_name: Oyuncu adı (Örn: "Wilfred Ndidi")
+        series_name: Seri adı (Örn: "Sezon Kartları")
+        group: Grup adı (Örn: "Newcomers", boş olabilir)
+        determinant: Determinant (Örn: "1", "5", "base")
+        is_signed: İmzalı mı?
+    
+    Returns:
+        6 seviye expected string listesi
+    """
+    # Normalize et
+    player_norm = normalize_token(player_name) if player_name else ""
+    series_norm = normalize_token(series_name) if series_name else ""
+    group_norm = normalize_token(group) if group else ""
+    det_norm = normalize_token(determinant) if determinant else ""
+    
+    # İmzalı suffix
+    s_suffix = "_s" if is_signed else ""
+    
+    levels = []
+    
+    # Seviye 1: Oyuncu + Seri + Grup + Det (en spesifik)
+    if player_norm and series_norm and group_norm and det_norm:
+        level1 = f"{player_norm}_{series_norm}_{group_norm}{s_suffix}_{det_norm}"
+        levels.append(level1)
+    else:
+        levels.append("")
+    
+    # Seviye 2: Oyuncu + Seri + Grup (Det YOK) ← YENİ VE KRİTİK!
+    if player_norm and series_norm and group_norm:
+        level2 = f"{player_norm}_{series_norm}_{group_norm}{s_suffix}"
+        levels.append(level2)
+    else:
+        levels.append("")
+    
+    # Seviye 3: Seri + Grup + Det
+    if series_norm and group_norm and det_norm:
+        level3 = f"{series_norm}_{group_norm}{s_suffix}_{det_norm}"
+        levels.append(level3)
+    else:
+        levels.append("")
+    
+    # Seviye 4: Seri + Grup (Det yok)
+    if series_norm and group_norm:
+        level4 = f"{series_norm}_{group_norm}{s_suffix}"
+        levels.append(level4)
+    else:
+        levels.append("")
+    
+    # Seviye 5: Seri + Det (Grup yok)
+    if series_norm and det_norm:
+        level5 = f"{series_norm}{s_suffix}_{det_norm}"
+        levels.append(level5)
+    else:
+        levels.append("")
+    
+    # Seviye 6: Seri (en genel)
+    if series_norm:
+        level6 = f"{series_norm}{s_suffix}"
+        levels.append(level6)
+    else:
+        levels.append("")
+    
+    return levels
 
 
 # ============================================================================
@@ -244,18 +356,18 @@ def parse_image_filename(filename: str, expected_variant: str = None) -> Tuple[s
     return (core_name, variant, is_back)
 
 
-def parse_back_image_filename(filename: str) -> Tuple[str, bool, bool]:
+def parse_back_image_filename(filename: str) -> Tuple[str, bool]:
     """
     BackSide görsel dosya adını parse et.
     
     Returns:
-        (core_name, has_s_marker, has_determinant) tuple
+        (core_name, has_s_marker) tuple
         
     Örnekler:
-        arka_xxx_s_5.jpg     → (xxx_s_5, True, True)
-        arka_xxx_5.jpg       → (xxx_5, False, True)
-        arka_xxx_s.jpg       → (xxx_s, True, False)
-        arka_xxx.jpg         → (xxx, False, False)
+        arka_xxx_s_5.jpg     → (xxx_s_5, True)
+        arka_xxx_5.jpg       → (xxx_5, False)
+        arka_xxx_s.jpg       → (xxx_s, True)
+        arka_xxx.jpg         → (xxx, False)
     """
     # Uzantıyı ayır
     path = Path(filename)
@@ -274,52 +386,7 @@ def parse_back_image_filename(filename: str) -> Tuple[str, bool, bool]:
     # 4. _s_ var mı kontrol et (SİLME!)
     has_s = "_s_" in core_name_raw or core_name_raw.endswith("_s")
     
-    # 5. Son kısım sayı mı? (Determinant var mı?)
-    parts = core_name_raw.rsplit('_', 1)
-    
-    has_determinant = False
-    
-    if len(parts) == 2:
-        last_part = parts[1]
-        
-        # Son kısım sayı ise → Determinant VAR
-        if last_part.isdigit():
-            has_determinant = True
-        # Son kısım "s" ise → bir öncekine bak
-        elif last_part == "s":
-            inner_parts = parts[0].rsplit('_', 1)
-            if len(inner_parts) == 2 and inner_parts[1].isdigit():
-                has_determinant = True
-    
-    return (core_name_raw, has_s, has_determinant)
-
-
-def remove_determinant_from_back(core_name: str) -> str:
-    """
-    BackSide core name'den determinant'ı kaldır.
-    
-    Örnekler:
-        xxx_s_5 → xxx_s
-        xxx_5   → xxx
-        xxx_s   → xxx_s (zaten yok)
-        xxx     → xxx (zaten yok)
-    """
-    parts = core_name.rsplit('_', 1)
-    
-    if len(parts) == 2:
-        last_part = parts[1]
-        
-        # Son kısım sayı ise → sil
-        if last_part.isdigit():
-            return parts[0]
-        # Son kısım "s" ise → bir öncekine bak
-        elif last_part == "s":
-            inner_parts = parts[0].rsplit('_', 1)
-            if len(inner_parts) == 2 and inner_parts[1].isdigit():
-                # xxx_5_s → xxx_s
-                return inner_parts[0] + "_s"
-    
-    return core_name
+    return (core_name_raw, has_s)
 
 
 # ============================================================================
@@ -339,15 +406,12 @@ class ImageMatcher:
         self.front_map: Dict[str, str] = {}
         self.front_map_text: Dict[str, str] = {}
         
-        # BackSide indexes - ÜÇ FARKLI MAP
-        # 1. Determinant VAR, İmzalı VAR
-        self.back_map_det_signed: Dict[str, str] = {}
-        # 2. Determinant VAR, İmzalı YOK
-        self.back_map_det_unsigned: Dict[str, str] = {}
-        # 3. Determinant YOK, İmzalı VAR
-        self.back_map_nodet_signed: Dict[str, str] = {}
-        # 4. Determinant YOK, İmzalı YOK
-        self.back_map_nodet_unsigned: Dict[str, str] = {}
+        # FrontSide indexes - Sondaki sayı kaldırılmış versiyonlar (Text determinant için)
+        self.front_map_no_trailing: Dict[str, str] = {}
+        
+        # BackSide indexes - 2 MAP (İmzalı/İmzalısız)
+        self.back_map_signed: Dict[str, str] = {}
+        self.back_map_unsigned: Dict[str, str] = {}
         
         # Tüm dosya adları
         self.all_files: List[str] = []
@@ -369,10 +433,9 @@ class ImageMatcher:
         
         self.front_map.clear()
         self.front_map_text.clear()
-        self.back_map_det_signed.clear()
-        self.back_map_det_unsigned.clear()
-        self.back_map_nodet_signed.clear()
-        self.back_map_nodet_unsigned.clear()
+        self.front_map_no_trailing.clear()
+        self.back_map_signed.clear()
+        self.back_map_unsigned.clear()
         self.all_files.clear()
         
         image_dict = {}
@@ -386,42 +449,32 @@ class ImageMatcher:
                 core_full, variant_full, is_back = parse_image_filename(filename, expected_variant=None)
                 
                 if is_back:
-                    # BackSide için özel indexleme
-                    back_core, has_s, has_det = parse_back_image_filename(filename)
+                    # BackSide için basit indexleme
+                    back_core, has_s = parse_back_image_filename(filename)
                     
-                    # Determinant yoksa → kaldır
-                    if not has_det:
-                        back_core_clean = back_core
+                    # İmzalı/İmzalısız ayrımı
+                    if has_s:
+                        self.back_map_signed[back_core] = filename
                     else:
-                        back_core_clean = back_core  # Olduğu gibi (determinant ile)
-                    
-                    # Doğru map'e ekle
-                    if has_det and has_s:
-                        self.back_map_det_signed[back_core_clean] = filename
-                    elif has_det and not has_s:
-                        self.back_map_det_unsigned[back_core_clean] = filename
-                    elif not has_det and has_s:
-                        self.back_map_nodet_signed[back_core_clean] = filename
-                    else:  # not has_det and not has_s
-                        self.back_map_nodet_unsigned[back_core_clean] = filename
+                        self.back_map_unsigned[back_core] = filename
                 else:
                     # FrontSide
                     core_text, variant_text, _ = parse_image_filename(filename, expected_variant="text")
                     self.front_map[core_full] = filename
                     self.front_map_text[core_text] = filename
+                    
+                    # Text determinant için: sondaki sayı kaldırılmış versiyon
+                    core_no_trailing = remove_trailing_number(core_full)
+                    self.front_map_no_trailing[core_no_trailing] = filename
                 
                 image_dict[core_full] = img_path
         
-        total_back = (len(self.back_map_det_signed) + len(self.back_map_det_unsigned) +
-                     len(self.back_map_nodet_signed) + len(self.back_map_nodet_unsigned))
-        
         self.logger.info(f"📂 Toplam: {len(self.all_files)} görsel indexlendi")
         self.logger.info(f"   ├─ Front: {len(self.front_map)}")
-        self.logger.info(f"   └─ Back: {total_back}")
-        self.logger.info(f"      ├─ Det+Signed: {len(self.back_map_det_signed)}")
-        self.logger.info(f"      ├─ Det+Unsigned: {len(self.back_map_det_unsigned)}")
-        self.logger.info(f"      ├─ NoDet+Signed: {len(self.back_map_nodet_signed)}")
-        self.logger.info(f"      └─ NoDet+Unsigned: {len(self.back_map_nodet_unsigned)}")
+        self.logger.info(f"   ├─ Front (no trailing): {len(self.front_map_no_trailing)}")
+        self.logger.info(f"   └─ Back: {len(self.back_map_signed) + len(self.back_map_unsigned)}")
+        self.logger.info(f"      ├─ Signed: {len(self.back_map_signed)}")
+        self.logger.info(f"      └─ Unsigned: {len(self.back_map_unsigned)}")
         
         return image_dict
     
@@ -429,44 +482,26 @@ class ImageMatcher:
         """Tam eşleşme ara."""
         return image_map.get(expected_core)
     
-    def _find_fuzzy_match(self, expected_core: str, image_map: Dict[str, str], check_variant: bool = True) -> Optional[str]:
+    def _find_fuzzy_match(self, expected_core: str, image_map: Dict[str, str], 
+                          check_word_count: bool = True) -> Optional[str]:
         """
         Fuzzy eşleşme ara.
         
         Args:
             expected_core: Beklenen core name
             image_map: Görsel map'i
-            check_variant: Varyant kontrolü yapılsın mı? (BackSide determinant YOK için False)
+            check_word_count: True ise kelime sayısı aynı olmalı
         """
-        # check_variant=False ise variant ayırma, tüm kelimeyi kullan
-        if check_variant:
-            expected_base, expected_variant = extract_variant(expected_core)
-            expected_words = expected_base.split('_')
-        else:
-            expected_base = expected_core
-            expected_variant = ""
-            expected_words = expected_core.split('_')
+        expected_words = expected_core.split('_')
         
         best_match = None
         best_score = float('inf')
         
         for core_name, filename in image_map.items():
-            # check_variant=False ise variant ayırma
-            if check_variant:
-                file_base, file_variant = extract_variant(core_name)
-                
-                # Varyant kontrolü
-                if file_variant != expected_variant:
-                    continue
-                
-                file_words = file_base.split('_')
-            else:
-                file_base = core_name
-                file_variant = ""
-                file_words = core_name.split('_')
+            file_words = core_name.split('_')
             
-            # Kelime sayısı AYNI OLMALI
-            if len(expected_words) != len(file_words):
+            # Kelime sayısı kontrolü (opsiyonel)
+            if check_word_count and len(expected_words) != len(file_words):
                 continue
             
             # İKİ YÖNLÜ kelime eşleştirme
@@ -546,7 +581,7 @@ class ImageMatcher:
         # Görselleri tara
         try:
             self.scan_images(image_folder)
-            result.add_info(f"Front: {len(self.front_map)}, Back: indexlendi.")
+            result.add_info(f"Front: {len(self.front_map)}, Back Signed: {len(self.back_map_signed)}, Back Unsigned: {len(self.back_map_unsigned)}")
         except Exception as e:
             result.add_error(f"Görsel klasörü tarama hatası: {e}")
             return df, result
@@ -554,11 +589,29 @@ class ImageMatcher:
         # DataFrame kopyası
         work_df = df.copy() if not dry_run else df
         
-        # FrontSideImage ve BackSideImage sütunları yoksa ekle
+        # FrontSideImage ve BackSideImage sütunları yoksa ekle - STRING TİPİNDE!
         if 'FrontSideImage' not in work_df.columns:
             work_df['FrontSideImage'] = ""
+        else:
+            work_df['FrontSideImage'] = work_df['FrontSideImage'].astype(str).replace('nan', '')
+            
         if 'BackSideImage' not in work_df.columns:
             work_df['BackSideImage'] = ""
+        else:
+            work_df['BackSideImage'] = work_df['BackSideImage'].astype(str).replace('nan', '')
+        
+        # BackSide için meta kolonlar var mı?
+        has_meta_columns = all(col in df.columns for col in ['player_name', 'series_name', 'determinant'])
+        
+        if has_meta_columns:
+            self.logger.info("✅ Meta kolonlar bulundu, 6 seviyeli BackSide sistemi kullanılacak")
+        else:
+            self.logger.warning("⚠️ Meta kolonlar bulunamadı, basit BackSide sistemi kullanılacak")
+        
+        # DEBUG: İlk birkaç back map içeriğini logla
+        self.logger.info(f"🔍 DEBUG - Back Unsigned Map örnekleri (ilk 5):")
+        for i, (k, v) in enumerate(list(self.back_map_unsigned.items())[:5]):
+            self.logger.info(f"   {k} → {v}")
         
         # Her satır için eşleştirme yap
         for idx, row in work_df.iterrows():
@@ -574,30 +627,46 @@ class ImageMatcher:
                 result.back_unmatched += 1
                 continue
             
+            # === FRONT SIDE ===
             # LinkUrlTR'den expected core name üret
             expected_core = generate_expected_from_link_url_tr(str(link_url_tr))
             
-            # İmzalı mı?
-            expected_is_signed = "_s_" in expected_core or expected_core.endswith("_s")
+            # Determinant tipi kontrol (sayısal mı text mi)
+            is_numeric = is_numeric_determinant(expected_core)
             
-            # Expected varyantı belirle
-            _, expected_variant = extract_variant(expected_core)
+            # DEBUG: İlk birkaç satır için logla
+            if row_num <= 3:
+                self.logger.info(f"🔍 DEBUG FrontSide Satır {row_num}:")
+                self.logger.info(f"   LinkUrlTR: {link_url_tr}")
+                self.logger.info(f"   Expected: {expected_core}")
+                self.logger.info(f"   is_numeric: {is_numeric}")
             
-            # Varyant tipine göre doğru map'i seç (FrontSide için)
-            is_text_variant = expected_variant and not expected_variant.isdigit() and expected_variant != "s"
+            front_match = None
+            match_type_front = "not_found"
             
-            if is_text_variant:
-                front_map_to_use = self.front_map_text
+            if is_numeric:
+                # SAYISAL DETERMINANT: Normal eşleştirme (sayı önemli)
+                front_match = self._find_exact_match(expected_core, self.front_map)
+                match_type_front = "exact"
+                
+                if not front_match:
+                    front_match = self._find_fuzzy_match(expected_core, self.front_map)
+                    match_type_front = "fuzzy" if front_match else "not_found"
             else:
-                front_map_to_use = self.front_map
-            
-            # === FRONT SIDE ===
-            front_match = self._find_exact_match(expected_core, front_map_to_use)
-            match_type_front = "exact"
-            
-            if not front_match:
-                front_match = self._find_fuzzy_match(expected_core, front_map_to_use)
-                match_type_front = "fuzzy" if front_match else "not_found"
+                # TEXT DETERMINANT: Sondaki sayıyı yoksay
+                # Önce normal dene
+                front_match = self._find_exact_match(expected_core, self.front_map)
+                match_type_front = "exact"
+                
+                if not front_match:
+                    # Sondaki sayı kaldırılmış map'te ara
+                    front_match = self._find_exact_match(expected_core, self.front_map_no_trailing)
+                    match_type_front = "exact_no_trailing" if front_match else "not_found"
+                
+                if not front_match:
+                    # Fuzzy dene (sondaki sayı kaldırılmış map'te)
+                    front_match = self._find_fuzzy_match(expected_core, self.front_map_no_trailing)
+                    match_type_front = "fuzzy_no_trailing" if front_match else "not_found"
             
             if front_match:
                 work_df.at[idx, 'FrontSideImage'] = front_match
@@ -616,56 +685,59 @@ class ImageMatcher:
                 )
             
             # === BACK SIDE ===
-            # BackSide için doğru map'i seç
-            # İlk olarak determinantlı map'lere bak
+            # İmzalı kontrolü (LinkUrlTR'den)
+            expected_is_signed = "_s_" in expected_core or expected_core.endswith("_s") or "imzali" in str(link_url_tr).lower()
+            
+            # Doğru map'i seç
+            back_map_to_use = self.back_map_signed if expected_is_signed else self.back_map_unsigned
+            
             back_match = None
             match_type_back = "not_found"
             
-            # 1. Determinant VAR map'lerinde ara
-            if expected_is_signed:
-                back_match = self._find_exact_match(expected_core, self.back_map_det_signed)
-                if back_match:
-                    match_type_back = "exact_det"
+            if has_meta_columns:
+                # YENİ SİSTEM: 6 seviyeli eşleştirme
+                player_name = str(row.get('player_name', '')) if pd.notna(row.get('player_name')) else ""
+                series_name = str(row.get('series_name', '')) if pd.notna(row.get('series_name')) else ""
+                group = str(row.get('group', '')) if pd.notna(row.get('group')) else ""
+                determinant = str(row.get('determinant', '')) if pd.notna(row.get('determinant')) else ""
+                
+                # 6 seviye expected üret
+                levels = generate_back_expected_levels(player_name, series_name, group, determinant, expected_is_signed)
+                
+                # DEBUG: İlk satır için seviyeleri logla
+                if row_num <= 3:
+                    self.logger.info(f"🔍 DEBUG BackSide Satır {row_num}:")
+                    self.logger.info(f"   Player: {player_name}, Series: {series_name}, Group: {group}, Det: {determinant}")
+                    self.logger.info(f"   is_signed: {expected_is_signed}")
+                    for i, lvl in enumerate(levels, 1):
+                        self.logger.info(f"   L{i}: {lvl}")
+                
+                # 6 Seviyeli arama (Exact + Fuzzy)
+                for level_idx, level_expected in enumerate(levels, 1):
+                    if not level_expected:
+                        continue
+                    
+                    # Exact match dene
+                    back_match = self._find_exact_match(level_expected, back_map_to_use)
+                    if back_match:
+                        match_type_back = f"exact_L{level_idx}"
+                        break
+                    
+                    # Fuzzy match dene
+                    back_match = self._find_fuzzy_match(level_expected, back_map_to_use)
+                    if back_match:
+                        match_type_back = f"fuzzy_L{level_idx}"
+                        break
             else:
-                back_match = self._find_exact_match(expected_core, self.back_map_det_unsigned)
+                # ESKİ SİSTEM: Basit eşleştirme (fallback)
+                # Sadece exact + fuzzy (tek seviye)
+                back_match = self._find_exact_match(expected_core, back_map_to_use)
                 if back_match:
-                    match_type_back = "exact_det"
-            
-            # 2. Bulunamadıysa, Determinant YOK map'lerinde ara (determinant'ı silerek)
-            if not back_match:
-                expected_core_no_det = remove_determinant_from_back(expected_core)
-                
-                if expected_is_signed:
-                    back_match = self._find_exact_match(expected_core_no_det, self.back_map_nodet_signed)
+                    match_type_back = "exact"
+                else:
+                    back_match = self._find_fuzzy_match(expected_core, back_map_to_use)
                     if back_match:
-                        match_type_back = "exact_nodet"
-                else:
-                    back_match = self._find_exact_match(expected_core_no_det, self.back_map_nodet_unsigned)
-                    if back_match:
-                        match_type_back = "exact_nodet"
-            
-            # 3. Hala bulunamadıysa, Fuzzy dene (determinant VAR map'lerinde)
-            if not back_match:
-                if expected_is_signed:
-                    back_match = self._find_fuzzy_match(expected_core, self.back_map_det_signed)
-                else:
-                    back_match = self._find_fuzzy_match(expected_core, self.back_map_det_unsigned)
-                
-                if back_match:
-                    match_type_back = "fuzzy_det"
-            
-            # 4. Hala bulunamadıysa, Fuzzy dene (determinant YOK map'lerinde)
-            # ÖNEMLİ: Determinant YOK için variant kontrolü KAPALI!
-            if not back_match:
-                expected_core_no_det = remove_determinant_from_back(expected_core)
-                
-                if expected_is_signed:
-                    back_match = self._find_fuzzy_match(expected_core_no_det, self.back_map_nodet_signed, check_variant=False)
-                else:
-                    back_match = self._find_fuzzy_match(expected_core_no_det, self.back_map_nodet_unsigned, check_variant=False)
-                
-                if back_match:
-                    match_type_back = "fuzzy_nodet"
+                        match_type_back = "fuzzy"
             
             # BackSide sonucu yaz
             if back_match:
@@ -701,3 +773,65 @@ class ImageMatcher:
         """
         _, result = self.match(df, image_folder, dry_run=True)
         return result
+    
+# ============================================================================
+# DATE PREFIX UTILITIES
+# ============================================================================
+
+def add_date_prefix_to_files(folder_path: str) -> Dict[str, any]:
+    """
+    Klasördeki tarihsiz görsellere YYYYMMDD_ prefix'i ekler.
+    
+    Args:
+        folder_path: Görsel klasörü yolu
+        
+    Returns:
+        {
+            'renamed': int,
+            'skipped': int,
+            'conflicts': List[str],
+            'errors': List[str]
+        }
+    """
+    from datetime import datetime
+    
+    folder = Path(folder_path)
+    
+    if not folder.exists() or not folder.is_dir():
+        return {'renamed': 0, 'skipped': 0, 'conflicts': [], 'errors': [f"Klasör bulunamadı: {folder_path}"]}
+    
+    today_prefix = datetime.now().strftime('%Y%m%d') + '_'
+    
+    result = {
+        'renamed': 0,
+        'skipped': 0,
+        'conflicts': [],
+        'errors': []
+    }
+    
+    for ext in IMAGE_EXTENSIONS:
+        for img_path in folder.rglob(f"*{ext}"):
+            filename = img_path.name
+            
+            # Zaten tarih var mı kontrol et (YYYYMMDD_ formatı)
+            if DATE_PATTERN.match(filename):
+                result['skipped'] += 1
+                continue
+            
+            # Yeni isim oluştur
+            new_filename = today_prefix + filename
+            new_path = img_path.parent / new_filename
+            
+            # Çakışma kontrolü
+            if new_path.exists():
+                result['conflicts'].append(filename)
+                continue
+            
+            # Rename yap
+            try:
+                img_path.rename(new_path)
+                result['renamed'] += 1
+            except Exception as e:
+                result['errors'].append(f"{filename}: {str(e)}")
+    
+    return result

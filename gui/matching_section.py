@@ -18,6 +18,8 @@ from gui import dialogs
 from workers import MatchCheckWorker, MatchingWorker
 from config.config_manager import ConfigManager
 from utils.path_utils import PathUtils
+from core.image_matcher import add_date_prefix_to_files
+
 
 
 class MatchingSection(QWidget):
@@ -140,6 +142,11 @@ class MatchingSection(QWidget):
         self.cancel_btn.clicked.connect(self._on_cancel)
         self.cancel_btn.setEnabled(False)
         status_button_layout.addWidget(self.cancel_btn)
+
+        self.date_prefix_btn = QPushButton("📅 Tarihleri Ekle")
+        self.date_prefix_btn.setStyleSheet(Styles.PRIMARY_BUTTON)
+        self.date_prefix_btn.clicked.connect(self._on_add_date_prefix)
+        status_button_layout.addWidget(self.date_prefix_btn)
         
         group_layout.addLayout(status_button_layout)
         
@@ -188,6 +195,62 @@ class MatchingSection(QWidget):
         if folder_path:
             self.image_folder_edit.setText(folder_path)
             self.config.set_last_image_folder(folder_path)
+
+    def _on_add_date_prefix(self):
+        """Tarihleri Ekle butonuna basıldı."""
+        image_folder = self.image_folder_edit.text()
+        
+        if not image_folder:
+            dialogs.show_warning(self, "Uyarı", "Lütfen görsel klasörünü seçin!")
+            return
+        
+        # Klasör kontrolü
+        is_valid, error_msg = PathUtils.validate_image_folder(image_folder)
+        if not is_valid:
+            dialogs.show_error(self, "Hata", error_msg)
+            return
+        
+        # Onay al
+        from PySide6.QtWidgets import QMessageBox
+        reply = QMessageBox.question(
+            self,
+            "Onay",
+            "Görsellerin başına tarih prefix'i eklenecek.\nBu işlem geri alınamaz!\n\nDevam etmek istiyor musunuz?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply != QMessageBox.Yes:
+            return
+        
+        # İşlemi yap
+        self.log_panel.add_log('SYSTEM', "Tarih prefix'leri ekleniyor...")
+        
+        result = add_date_prefix_to_files(image_folder)
+        
+        # Sonuçları logla
+        self.log_panel.add_log('INFO', f"✅ {result['renamed']} dosya yeniden adlandırıldı")
+        self.log_panel.add_log('INFO', f"⏭️ {result['skipped']} dosya zaten tarihli (atlandı)")
+        
+        if result['conflicts']:
+            self.log_panel.add_log('WARNING', f"⚠️ {len(result['conflicts'])} çakışma:")
+            for conflict in result['conflicts']:
+                self.log_panel.add_log('WARNING', f"   - {conflict}")
+        
+        if result['errors']:
+            self.log_panel.add_log('ERROR', f"❌ {len(result['errors'])} hata:")
+            for error in result['errors']:
+                self.log_panel.add_log('ERROR', f"   - {error}")
+        
+        # Özet dialog
+        summary = f"Yeniden adlandırılan: {result['renamed']}\nZaten tarihli: {result['skipped']}"
+        if result['conflicts']:
+            summary += f"\nÇakışma: {len(result['conflicts'])}"
+        if result['errors']:
+            summary += f"\nHata: {len(result['errors'])}"
+        
+        dialogs.show_info(self, "Tarih Ekleme Tamamlandı", summary)
+
     
     def _on_check_matches(self):
         """Check Matches butonuna basıldı."""

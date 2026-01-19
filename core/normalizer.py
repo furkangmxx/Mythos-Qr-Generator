@@ -3,6 +3,9 @@ Metin normalizasyonu modülü.
 
 Türkçe karakterleri İngilizce'ye çevirir, boşlukları ve özel karakterleri düzenler.
 Fuzzy matching için metinleri standart hale getirir.
+
+v1.1 - Güncelleme:
+- URL'de geçersiz tüm karakterler temizlendi (&, ', ", #, ?, vb.)
 """
 
 import re
@@ -15,6 +18,47 @@ from config.settings import (
     IGNORE_PATTERNS,
     IMAGE_SIGNED_MARKER
 )
+
+# URL'de geçersiz karakterler listesi
+URL_INVALID_CHARS = [
+    # Kesme işaretleri ve tırnaklar
+    "'", "'", "'", "`", "´",  # Kesme işaretleri
+    '"', '"', '"', '„',        # Tırnaklar
+    
+    # Özel semboller
+    '&',   # Ampersand (soruna neden olan karakter)
+    '#',   # Hash
+    '?',   # Soru işareti
+    '@',   # At işareti
+    '!',   # Ünlem
+    '$',   # Dolar
+    '%',   # Yüzde
+    '^',   # Şapka
+    '*',   # Yıldız
+    '+',   # Artı
+    '=',   # Eşittir
+    '~',   # Tilde
+    '|',   # Pipe
+    '\\',  # Backslash
+    
+    # Parantezler
+    '(', ')',   # Normal parantez
+    '[', ']',   # Köşeli parantez
+    '{', '}',   # Süslü parantez
+    '<', '>',   # Açılı parantez
+    
+    # Noktalama işaretleri
+    ':',   # İki nokta
+    ';',   # Noktalı virgül
+    ',',   # Virgül
+    '.',   # Nokta
+    
+    # Para birimleri
+    '€',   # Euro
+    '£',   # Pound
+    '¥',   # Yen
+    '₺',   # TL
+]
 
 
 class Normalizer:
@@ -34,11 +78,12 @@ class Normalizer:
         İşlemler:
         1. Türkçe karakterleri İngilizce'ye çevir
         2. Küçük harfe çevir
-        3. _ ve - karakterlerini standardize et
-        4. _s_ gibi işaretleyicileri kaldır (opsiyonel)
-        5. Tarih/sayı kalıplarını kaldır
-        6. Çoklu boşlukları tek boşluğa indir
-        7. Baş/sondaki boşlukları temizle
+        3. _s_ gibi işaretleyicileri kaldır (opsiyonel)
+        4. _ ve boşlukları - yap
+        5. URL'de geçersiz karakterleri kaldır (/, &, ', vb.)
+        6. Tarih/sayı kalıplarını kaldır
+        7. Çoklu tire/boşlukları tek yap
+        8. Baş/sondaki boşlukları temizle
         
         Args:
             text: Normalize edilecek metin
@@ -53,6 +98,12 @@ class Normalizer:
             
             >>> Normalizer.normalize("Arda_Güler_Base_s_2024")
             'arda-guler-base'
+            
+            >>> Normalizer.normalize("Matteo Guendouzi & Asensio & Edson")
+            'matteo-guendouzi-asensio-edson'
+            
+            >>> Normalizer.normalize("Dorgeles' Nene")
+            'dorgeles-nene'
         """
         if not text or not isinstance(text, str):
             return ""
@@ -71,17 +122,24 @@ class Normalizer:
         for old_char, new_char in EQUIVALENT_CHARS.items():
             normalized = normalized.replace(old_char, new_char)
 
-        # 4.5 / karakterini kaldır
+        # 5. URL'de geçersiz karakterleri kaldır
+        # ==============================================
+        # Önce / karakterini kaldır (önceden de vardı)
         normalized = normalized.replace('/', '')
+        
+        # Tüm geçersiz karakterleri kaldır
+        for char in URL_INVALID_CHARS:
+            normalized = normalized.replace(char, '')
+        # ==============================================
 
-        # 5. Tarih/sayı kalıplarını kaldır
+        # 6. Tarih/sayı kalıplarını kaldır
         normalized = Normalizer._remove_ignore_patterns(normalized)
         
-        # 6. Çoklu tire/boşlukları tek yap
+        # 7. Çoklu tire/boşlukları tek yap
         normalized = re.sub(r'-+', '-', normalized)
         normalized = re.sub(r'\s+', '-', normalized)
         
-        # 7. Baş/son tire ve boşlukları temizle
+        # 8. Baş/son tire ve boşlukları temizle
         normalized = normalized.strip('- ')
         
         return normalized
